@@ -115,14 +115,6 @@
 </style>
 </head>
 <body>
-<script>
-  (function(){
-    const clave = prompt("🔒 Introduce la contraseña:");
-    if(clave !== "Archena2026"){
-      document.body.innerHTML = "<div style='display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;background:#f4f3ef'><div style='background:#fff;padding:40px;border-radius:12px;text-align:center;box-shadow:0 2px 16px rgba(0,0,0,.1)'><div style='font-size:48px'>🔒</div><h2 style='color:#c0392b;margin:16px 0 8px'>Acceso denegado</h2><p style='color:#666'>Contraseña incorrecta.</p></div></div>";
-    }
-  })();
-</script>
 <div class="page">
   <div class="topbar">
     <div>
@@ -173,6 +165,7 @@
     <div style="margin-left:auto;display:flex;gap:8px">
       <button class="btn sm" onclick="exportCosteEmpresas()">⬇ Empresa Excel</button>
       <button class="btn sm" onclick="exportTrabajadorExcel()" style="background:#e8f0fb;color:#185FA5;border-color:#85b7eb">⬇ Trabajador Excel</button>
+      <button class="btn sm" onclick="exportDetalleTrabaj()" style="background:#f0eeff;color:#534AB7;border-color:#b4aef0">📋 Detalle Trabaj.</button>
       <button class="btn" onclick="abrirInformeDesdeCoste()" style="background:#534AB7;color:#fff;border-color:#534AB7">📊 Informe desplazamientos</button>
     </div>
   </div>
@@ -328,6 +321,23 @@
         <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
           <button class="btn" onclick="closeInforme()">Cancelar</button>
           <button class="btn primary" onclick="generarInforme()" style="min-width:130px;font-size:14px;padding:9px 20px">📊 Generar informe</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal editar/eliminar entradas del día -->
+    <div id="entradas-overlay" onclick="if(event.target===this)closeEntradas()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:1000;align-items:flex-start;justify-content:center;padding-top:60px;overflow-y:auto">
+      <div style="background:var(--surface);border-radius:var(--r2);padding:24px;width:680px;max-width:96vw;box-shadow:0 8px 32px rgba(0,0,0,0.18);margin-bottom:40px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+          <div>
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:4px">Entradas del día</div>
+            <div style="font-size:17px;font-weight:600;color:var(--text)" id="ent-title">—</div>
+          </div>
+          <button onclick="closeEntradas()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted)">✕</button>
+        </div>
+        <div id="ent-list"></div>
+        <div style="margin-top:16px;text-align:right">
+          <button class="btn" onclick="closeEntradas()">Cerrar</button>
         </div>
       </div>
     </div>
@@ -753,11 +763,13 @@ function renderTable(){
   tbody.innerHTML = rows.map(row=>{
     const gi = DB.indexOf(row);
     const {t1,t2,total} = calcTotals(row);
-    const days1cells = row.days1.map((v)=>
-      `<td style="text-align:center;color:${v?'var(--text)':'#bbb'};font-size:11px">${v||'·'}</td>`
+    const days1cells = row.days1.map((v, di)=>
+      v ? `<td style="text-align:center;color:var(--text);font-size:11px;cursor:pointer;background:#f0f7ee" onclick="openEntradas(${gi},${di+1})" title="Ver/editar entradas del día ${di+1}">${v}</td>`
+        : `<td style="text-align:center;color:#bbb;font-size:11px">·</td>`
     ).join('');
-    const days2cells = row.days2.map((v)=>
-      `<td style="text-align:center;color:${v?'var(--text)':'#bbb'};font-size:11px">${v||'·'}</td>`
+    const days2cells = row.days2.map((v, di)=>
+      v ? `<td style="text-align:center;color:var(--text);font-size:11px;cursor:pointer;background:#f0f7ee" onclick="openEntradas(${gi},${di+16})" title="Ver/editar entradas del día ${di+16}">${v}</td>`
+        : `<td style="text-align:center;color:#bbb;font-size:11px">·</td>`
     ).join('');
     return `<tr>
       <td class="sticky-l" style="min-width:90px"><span class="encargado-badge">${row.encargado||'—'}</span></td>
@@ -856,6 +868,112 @@ function handleModalKey(e){
   }
 }
 
+function openEntradas(gi, dia){
+  const row = DB[gi];
+  document.getElementById('ent-title').textContent = `Día ${dia} — ${row.nombre}`;
+  document.getElementById('entradas-overlay').dataset.gi  = gi;
+  document.getElementById('entradas-overlay').dataset.dia = dia;
+  renderEntradas(gi, dia);
+  document.getElementById('entradas-overlay').style.display='flex';
+}
+
+function closeEntradas(){
+  document.getElementById('entradas-overlay').style.display='none';
+  renderTable();
+}
+
+function renderEntradas(gi, dia){
+  const row = DB[gi];
+  const matches = ENTRADAS.map((e,i)=>({...e,_idx:i}))
+    .filter(e=>e.nombre===row.nombre && e.dni===row.dni && e.dia===dia);
+
+  const cont = document.getElementById('ent-list');
+  if(!matches.length){
+    cont.innerHTML='<div style="color:var(--muted);text-align:center;padding:20px">No hay entradas para este día.</div>';
+    return;
+  }
+
+  cont.innerHTML = matches.map((e,i)=>`
+    <div style="border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:12px;background:var(--surface)" id="ent-card-${i}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted)">Nº Parte</label>
+          <input type="text" id="ec-parte-${i}" value="${e.parte||''}" placeholder="Opcional" style="padding:7px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13px">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted)">Empresa</label>
+          <select id="ec-empresa-${i}" style="padding:7px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13px">
+            ${EMPRESAS.map(emp=>`<option value="${emp}"${emp===e.empresa?' selected':''}>${emp}</option>`).join('')}
+            ${!EMPRESAS.includes(e.empresa) && e.empresa ? `<option value="${e.empresa}" selected>${e.empresa}</option>` : ''}
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;grid-column:1/-1">
+          <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted)">Centro de trabajo</label>
+          <input type="text" id="ec-centro-${i}" value="${e.centro||''}" style="padding:7px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13px">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted)">Nº Trab.</label>
+          <input type="number" id="ec-ntrabaj-${i}" value="${e.ntrabaj||''}" placeholder="0" oninput="recalcCard(${i})" style="padding:7px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13px;text-align:center">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <label style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted)">Cantidad (€)</label>
+          <input type="number" id="ec-cantidad-${i}" value="${e.cantidad||''}" placeholder="0.00" oninput="recalcCard(${i})" style="padding:7px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surface);color:var(--text);font-size:13px;text-align:center">
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div style="font-size:14px;font-weight:600;color:var(--accent2)">Total: <span id="ec-total-${i}">${e.importe.toFixed(2)} €</span></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn sm" onclick="saveEntrada(${e._idx},${i},${gi},${dia})">💾 Guardar</button>
+          <button class="del-btn" onclick="deleteEntrada(${e._idx},${gi},${dia})">✕ Eliminar</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function recalcCard(i){
+  const nEl = document.getElementById('ec-ntrabaj-'+i);
+  const cEl = document.getElementById('ec-cantidad-'+i);
+  const n = parseFloat(nEl.value)||0;
+  const c = parseFloat(cEl.value)||0;
+  if(nEl.value!=='' && cEl.value!==''){
+    document.getElementById('ec-total-'+i).textContent = (n*c).toFixed(2)+' €';
+  }
+}
+
+function saveEntrada(idx, i, gi, dia){
+  const parte   = document.getElementById('ec-parte-'+i).value.trim();
+  const empresa = document.getElementById('ec-empresa-'+i).value;
+  const centro  = document.getElementById('ec-centro-'+i).value.trim();
+  const nVal    = document.getElementById('ec-ntrabaj-'+i).value;
+  const cVal    = document.getElementById('ec-cantidad-'+i).value;
+  const n       = parseFloat(nVal)||0;
+  const c       = parseFloat(cVal)||0;
+  // Solo recalcula el total si ambos campos tienen valor, si no conserva el importe original
+  const total   = (nVal!=='' && cVal!=='') ? parseFloat((n*c).toFixed(2)) : ENTRADAS[idx].importe;
+  ENTRADAS[idx] = {...ENTRADAS[idx], parte, empresa, centro, ntrabaj:n||ENTRADAS[idx].ntrabaj, cantidad:c||ENTRADAS[idx].cantidad, importe:total};
+  recalcDayTotal(gi, dia);
+  renderEntradas(gi, dia);
+}
+
+function deleteEntrada(idx, gi, dia){
+  if(!confirm('¿Eliminar esta entrada?')) return;
+  ENTRADAS.splice(idx, 1);
+  recalcDayTotal(gi, dia);
+  const row = DB[gi];
+  const stillHas = ENTRADAS.some(e=>e.nombre===row.nombre && e.dni===row.dni && e.dia===dia);
+  if(!stillHas) closeEntradas();
+  else renderEntradas(gi, dia);
+}
+
+function recalcDayTotal(gi, dia){
+  const row = DB[gi];
+  const sum = ENTRADAS.filter(e=>e.nombre===row.nombre && e.dni===row.dni && e.dia===dia)
+               .reduce((a,e)=>a+e.importe, 0);
+  const total = parseFloat(sum.toFixed(2));
+  if(dia>=1 && dia<=15)       row.days1[dia-1]  = total;
+  else if(dia>=16 && dia<=mes) row.days2[dia-16] = total;
+}
+
 function openModal(gi){
   const row = DB[gi];
   document.getElementById('m-idx').value = gi;
@@ -906,7 +1024,7 @@ function guardarDia(){
     DB[gi].days2[dia-16] = parseFloat(((DB[gi].days2[dia-16]||0) + total).toFixed(2));
   // Log entrada
   const row = DB[gi];
-  ENTRADAS.push({nombre:row.nombre, dni:row.dni, encargado:row.encargado, empresa, centro, parte, inicio, dia, importe:total});
+  ENTRADAS.push({nombre:row.nombre, dni:row.dni, encargado:row.encargado, empresa, centro, parte, inicio, dia, ntrabaj:n, cantidad:c, importe:total});
   closeModal();
   // Make sure table is visible before rendering
   if(document.getElementById('table-wrap').style.display==='none'){
@@ -979,6 +1097,36 @@ function exportCosteEmpresas(){
   const wb = lib.utils.book_new();
   lib.utils.book_append_sheet(wb, ws, 'Coste Empresas');
   lib.writeFile(wb, 'CosteEmpresas_export.xlsx');
+}
+
+function exportDetalleTrabaj(){
+  if(!ENTRADAS.length){ alert('No hay datos para exportar.'); return; }
+  const entradas = getEntradasSinDomingos();
+  const rows = [];
+
+  // Sort by nombre then día
+  [...entradas].sort((a,b)=>{
+    const n = a.nombre.localeCompare(b.nombre);
+    return n !== 0 ? n : a.dia - b.dia;
+  }).forEach(e=>{
+    rows.push({
+      'Trabajador':        e.nombre||'',
+      'Día':               e.dia,
+      'Nº Parte':          e.parte||'',
+      'Empresa':           e.empresa||'',
+      'Centro de Trabajo': e.centro||'',
+      'Nº TRAB':           e.ntrabaj||'',
+      'Cantidad':          e.cantidad||'',
+      'Coste total (€)':   e.importe
+    });
+  });
+
+  const lib = XLSXRead || window.XLSX;
+  const ws  = lib.utils.json_to_sheet(rows);
+  ws['!cols']=[{wch:32},{wch:6},{wch:14},{wch:26},{wch:22},{wch:9},{wch:10},{wch:16}];
+  const wb  = lib.utils.book_new();
+  lib.utils.book_append_sheet(wb, ws, 'Detalle Trabajadores');
+  lib.writeFile(wb, 'DetalleTrabajadores_export.xlsx');
 }
 
 function exportTrabajadorExcel(){
@@ -1095,6 +1243,8 @@ function exportarDatos(){
       'Inicio':        e.inicio||inicio,
       'Centro Trabajo':e.centro||'',
       'Día':           e.dia,
+      'Nº Trab':       e.ntrabaj||'',
+      'Cantidad':      e.cantidad||'',
       'Importe':       e.importe
     });
   });
@@ -1146,6 +1296,8 @@ function importarDatos(inp){
         inicio:   String(r['Inicio']||inicio).trim(),
         centro:   String(r['Centro Trabajo']||'').trim(),
         dia:      parseInt(r['Día'])||0,
+        ntrabaj:  parseFloat(r['Nº Trab'])||0,
+        cantidad: parseFloat(r['Cantidad'])||0,
         importe:  parseFloat(r['Importe'])||0
       })).filter(r=>r.nombre);
 
