@@ -114,7 +114,10 @@
   .edit-day input{width:36px;padding:4px;text-align:center;border:1px solid var(--border2);border-radius:4px;background:var(--surface);color:var(--text);font-size:12px}
   .edit-day input:focus{outline:2px solid var(--accent)}
   .edit-section{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:12px 0 6px;border-top:1px solid var(--border);padding-top:10px}
-  .login-screen{position:fixed;inset:0;background:#2d5a27;display:flex;align-items:center;justify-content:center;z-index:9999}
+  .login-screen{position:fixed;top:0;right:0;bottom:0;left:0;background:#2d5a27;display:flex;align-items:center;justify-content:center;z-index:9999}
+</style>
+<style>
+  #main-app{display:none}
   .login-box{background:#fff;border-radius:16px;padding:40px 36px;width:420px;max-width:95vw;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.25)}
   .login-logo{font-size:44px;margin-bottom:12px}
   .login-title{font-size:22px;font-weight:700;color:#2d5a27;margin-bottom:4px}
@@ -652,10 +655,9 @@ let _pendingFile = null; // file waiting for month/year confirmation
 
 window.addEventListener('load', ()=>{
   XLSXRead = window.XLSX;
-  // Focus password after selecting office
-  document.getElementById('login-pass').addEventListener('keydown', e=>{
-    if(e.key==='Enter') doLogin();
-  });
+  // Force login screen visible
+  document.getElementById('login-screen').style.cssText='display:flex!important;position:fixed;top:0;right:0;bottom:0;left:0;background:#2d5a27;align-items:center;justify-content:center;z-index:9999';
+  document.getElementById('main-app').style.display='none';
 });
 
 function toggleForm(){
