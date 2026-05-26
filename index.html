@@ -6,6 +6,8 @@
 <title>Registro de Desplazamientos</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Segoe UI',system-ui,sans-serif;background:#f4f3ef;color:#1a1a18;min-height:100vh}
@@ -112,10 +114,41 @@
   .edit-day input{width:36px;padding:4px;text-align:center;border:1px solid var(--border2);border-radius:4px;background:var(--surface);color:var(--text);font-size:12px}
   .edit-day input:focus{outline:2px solid var(--accent)}
   .edit-section{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:12px 0 6px;border-top:1px solid var(--border);padding-top:10px}
+  .login-screen{position:fixed;inset:0;background:#2d5a27;display:flex;align-items:center;justify-content:center;z-index:9999}
+  .login-box{background:#fff;border-radius:16px;padding:40px 36px;width:420px;max-width:95vw;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,0.25)}
+  .login-logo{font-size:44px;margin-bottom:12px}
+  .login-title{font-size:22px;font-weight:700;color:#2d5a27;margin-bottom:4px}
+  .login-sub{font-size:13px;color:#6b6b65;margin-bottom:28px}
+  .office-btns{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+  .office-btn{padding:16px 10px;border:2px solid #e0ddd4;border-radius:10px;background:#fff;cursor:pointer;font-size:14px;font-weight:600;color:#444;transition:.15s}
+  .office-btn:hover{border-color:#2d5a27;color:#2d5a27;background:#f0f7ee}
+  .office-btn.selected{border-color:#2d5a27;background:#2d5a27;color:#fff}
+  .login-pass{width:100%;padding:12px 14px;border:1.5px solid #e0ddd4;border-radius:8px;font-size:15px;margin-bottom:12px;text-align:center;letter-spacing:2px}
+  .login-pass:focus{outline:none;border-color:#2d5a27}
+  .login-btn{width:100%;padding:13px;background:#2d5a27;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer}
+  .login-btn:hover{background:#3d7a35}
+  .login-error{color:#c0392b;font-size:13px;margin-top:8px;min-height:20px}
+  .sync-badge{font-size:11px;color:var(--muted);margin-left:6px}
+  .sync-badge.ok{color:#2d8a3e}
 </style>
 </head>
 <body>
-<div class="page">
+<!-- LOGIN SCREEN -->
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">📋</div>
+    <div class="login-title">Registro de Desplazamientos</div>
+    <div class="login-sub">Selecciona tu oficina e introduce la contraseña</div>
+    <div class="office-btns">
+      <button class="office-btn" id="btn-archena" onclick="selectOficina('archena','Archena')">🏢 Archena</button>
+      <button class="office-btn" id="btn-laaljorra" onclick="selectOficina('laaljorra','La Aljorra')">🏢 La Aljorra</button>
+    </div>
+    <input type="password" class="login-pass" id="login-pass" placeholder="Contraseña" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="login-btn" onclick="doLogin()">Entrar</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+<div class="page" id="main-app" style="display:none">
   <div class="topbar">
     <div>
       <h1 id="page-title">📋 Registro de Desplazamientos</h1>
@@ -144,7 +177,8 @@
       <button class="btn" onclick="openEmpresas()" style="background:#e8f2e6;color:#2d5a27;border-color:#a0c89a">🏢 Empresas</button>
       <button class="btn" onclick="showCosteEmpresas()" style="background:#e8f0fb;color:#185FA5;border-color:#85b7eb">🏭 Coste Empresas</button>
       <button class="btn" onclick="abrirInforme()" style="background:#534AB7;color:#fff;border-color:#534AB7">📊 Informe desplazamientos</button>
-      <button class="btn save" onclick="saveDB()">💾 Guardar</button>
+      <button class="btn save" onclick="saveToFirestore()">💾 Guardar en nube</button>
+      <button class="btn sm" onclick="loadFromFirestore().then(()=>{ sortDB();updateFilters();buildHeader();renderTable(); })" style="background:#e8f0fb;color:#185FA5;border-color:#85b7eb" title="Cargar últimos datos de la nube">🔄 Actualizar</button>
       <button class="btn sm" onclick="exportarDatos()">⬇ Exportar datos</button>
       <button class="btn sm" onclick="document.getElementById('datos-file-input').click()" style="background:#e8f0fb;color:#185FA5;border-color:#85b7eb">⬆ Importar datos</button>
       <input type="file" id="datos-file-input" accept=".xlsx,.xls" style="display:none" onchange="importarDatos(this)">
@@ -478,9 +512,134 @@
       </table>
     </div>
   </div>
-</div>
+</div><!-- end main-app -->
 
 <script>
+// ── FIREBASE ──────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyDtoEnJ4UH13Ush-Un16iZ33J2EHUPBaSo",
+  authDomain: "app-desplazamientos.firebaseapp.com",
+  projectId: "app-desplazamientos",
+  storageBucket: "app-desplazamientos.firebasestorage.app",
+  messagingSenderId: "251792892314",
+  appId: "1:251792892314:web:c295bc34b6ef7bc619da23"
+};
+firebase.initializeApp(firebaseConfig);
+const FSdb = firebase.firestore();
+
+const OFICINAS = {
+  archena:   { nombre:'Archena',   pass:'Transporte2026' },
+  laaljorra: { nombre:'La Aljorra', pass:'Aljorra2026'  }
+};
+let OFICINA      = null;
+let OFICINA_NOMBRE = '';
+
+function selectOficina(id, nombre){
+  OFICINA = id;
+  OFICINA_NOMBRE = nombre;
+  document.querySelectorAll('.office-btn').forEach(b=>b.classList.remove('selected'));
+  document.getElementById('btn-'+id).classList.add('selected');
+  document.getElementById('login-pass').focus();
+  document.getElementById('login-error').textContent='';
+}
+
+async function doLogin(){
+  if(!OFICINA){ document.getElementById('login-error').textContent='Selecciona una oficina primero.'; return; }
+  const pass = document.getElementById('login-pass').value;
+  if(pass !== OFICINAS[OFICINA].pass){
+    document.getElementById('login-error').textContent='Contraseña incorrecta.';
+    document.getElementById('login-pass').value='';
+    return;
+  }
+  document.getElementById('login-btn') && (document.querySelector('.login-btn').textContent='Cargando...');
+  try {
+    await loadFromFirestore();
+    document.getElementById('login-screen').style.display='none';
+    document.getElementById('main-app').style.display='block';
+    document.getElementById('page-title').textContent='📋 Registro de Desplazamientos — '+OFICINA_NOMBRE;
+    setupRealtimeSync();
+  } catch(err){
+    document.getElementById('login-error').textContent='Error al conectar. Comprueba la conexión.';
+    document.querySelector('.login-btn').textContent='Entrar';
+  }
+}
+
+async function loadFromFirestore(){
+  const doc = await FSdb.collection('oficinas').doc(OFICINA).get();
+  if(doc.exists){
+    const d = doc.data();
+    DB       = d.db       || [];
+    ENTRADAS = d.entradas || [];
+    EMPRESAS = d.empresas || [];
+    mes      = d.mes      || 30;
+    mesNum   = d.mesNum   || new Date().getMonth()+1;
+    anioNum  = d.anioNum  || new Date().getFullYear();
+    inicio   = d.inicio   || '';
+    const centimos = d.centimos || 26;
+    // Also save to localStorage as cache
+    localStorage.setItem('desplazamientos_db',       JSON.stringify(DB));
+    localStorage.setItem('desplazamientos_entradas', JSON.stringify(ENTRADAS));
+    localStorage.setItem('desplazamientos_empresas', JSON.stringify(EMPRESAS));
+    localStorage.setItem('desplazamientos_mes',      String(mes));
+    localStorage.setItem('desplazamientos_mesnum',   String(mesNum));
+    localStorage.setItem('desplazamientos_anio',     String(anioNum));
+    localStorage.setItem('desplazamientos_inicio',   inicio);
+    localStorage.setItem('desplazamientos_centimos', String(centimos));
+    if(DB.length){
+      document.getElementById('cv-cxkm').value = centimos;
+      document.getElementById('inf-cxkm').value = centimos;
+      afterLoad('Firebase — '+OFICINA_NOMBRE);
+    }
+    const ts = d.updatedAt ? d.updatedAt.toDate().toLocaleString('es-ES') : '';
+    const st = document.getElementById('save-status');
+    st.textContent = ts ? '☁ Sincronizado: '+ts : '☁ Sin datos previos';
+    st.className = 'save-status ok';
+  }
+}
+
+let _unsubscribe = null;
+function setupRealtimeSync(){
+  if(_unsubscribe) _unsubscribe();
+  _unsubscribe = FSdb.collection('oficinas').doc(OFICINA).onSnapshot(doc=>{
+    if(!doc.exists || doc.metadata.hasPendingWrites) return;
+    const st = document.getElementById('save-status');
+    const d = doc.data();
+    const ts = d.updatedAt ? d.updatedAt.toDate().toLocaleString('es-ES') : '';
+    st.textContent = '☁ '+OFICINA_NOMBRE+' · '+ts;
+    st.className = 'save-status ok';
+  });
+}
+
+async function saveToFirestore(){
+  if(!OFICINA){ alert('No has iniciado sesión.'); return; }
+  if(!DB.length && !ENTRADAS.length){ alert('No hay datos para guardar.'); return; }
+  try{
+    const centimos = parseFloat(document.getElementById('cv-cxkm').value)||26;
+    await FSdb.collection('oficinas').doc(OFICINA).set({
+      db: DB, entradas: ENTRADAS, empresas: EMPRESAS,
+      mes, mesNum, anioNum, inicio, centimos,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    // Also save to localStorage
+    localStorage.setItem('desplazamientos_db',       JSON.stringify(DB));
+    localStorage.setItem('desplazamientos_entradas', JSON.stringify(ENTRADAS));
+    localStorage.setItem('desplazamientos_empresas', JSON.stringify(EMPRESAS));
+    localStorage.setItem('desplazamientos_mes',      String(mes));
+    localStorage.setItem('desplazamientos_mesnum',   String(mesNum));
+    localStorage.setItem('desplazamientos_anio',     String(anioNum));
+    localStorage.setItem('desplazamientos_inicio',   inicio);
+    localStorage.setItem('desplazamientos_centimos', String(centimos));
+    localStorage.setItem('desplazamientos_ts',       new Date().toISOString());
+    const hm = new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+    const st = document.getElementById('save-status');
+    st.textContent = '✓ Guardado en la nube a las '+hm;
+    st.className = 'save-status ok';
+  }catch(err){
+    alert('Error al guardar en la nube: '+err.message);
+  }
+}
+
+// ── APP GLOBALS ────────────────────────────────────────
 let DB = [];
 let mes = 30;
 let mesNum = new Date().getMonth()+1;
@@ -492,25 +651,11 @@ let XLSXRead = null;
 let _pendingFile = null; // file waiting for month/year confirmation
 
 window.addEventListener('load', ()=>{
-  // xlsx.full.min loads first — grab it before xlsx-js-style overwrites XLSX global
   XLSXRead = window.XLSX;
-  try{
-    const raw=localStorage.getItem('desplazamientos_db');
-    if(raw){
-      const tmp=JSON.parse(raw);
-      if(tmp&&tmp.length){
-        const ts=localStorage.getItem('desplazamientos_ts');
-        let label='↩ Restaurar sesión guardada';
-        if(ts){
-          const d=new Date(ts);
-          label=`↩ Restaurar sesión del ${d.toLocaleDateString('es-ES')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
-        }
-        const btn=document.getElementById('btn-restore');
-        btn.textContent=label;
-        btn.style.display='inline-block';
-      }
-    }
-  }catch(e){}
+  // Focus password after selecting office
+  document.getElementById('login-pass').addEventListener('keydown', e=>{
+    if(e.key==='Enter') doLogin();
+  });
 });
 
 function toggleForm(){
@@ -1101,11 +1246,10 @@ function exportCosteEmpresas(){
 
 function exportDetalleTrabaj(){
   if(!ENTRADAS.length){ alert('No hay datos para exportar.'); return; }
-  const entradas = getEntradasSinDomingos();
   const rows = [];
 
-  // Sort by nombre then día
-  [...entradas].sort((a,b)=>{
+  // Datos tal como se introdujeron, sin redistribución de domingos
+  [...ENTRADAS].sort((a,b)=>{
     const n = a.nombre.localeCompare(b.nombre);
     return n !== 0 ? n : a.dia - b.dia;
   }).forEach(e=>{
@@ -1647,17 +1791,18 @@ function saveDB(){
 }
 
 function clearMonth(){
-  if(!confirm('⚠️ ¿Seguro que quieres borrar TODOS los datos del mes?\n\nEsta acción eliminará tanto los datos en pantalla como los guardados. No se puede deshacer.')) return;
+  if(!confirm('⚠️ ¿Seguro que quieres borrar TODOS los datos del mes?\n\nEsta acción eliminará tanto los datos en pantalla como los guardados en la nube. No se puede deshacer.')) return;
   if(!confirm('Confirmación final: ¿borrar todos los datos del mes?')) return;
   DB=[]; ENTRADAS=[];
-  localStorage.removeItem('desplazamientos_db');
-  localStorage.removeItem('desplazamientos_mes');
-  localStorage.removeItem('desplazamientos_mesnum');
-  localStorage.removeItem('desplazamientos_anio');
-  localStorage.removeItem('desplazamientos_inicio');
-  localStorage.removeItem('desplazamientos_empresas');
-  localStorage.removeItem('desplazamientos_entradas');
-  localStorage.removeItem('desplazamientos_centimos');
+  // Clear localStorage
+  ['db','mes','mesnum','anio','inicio','empresas','entradas','centimos'].forEach(k=>
+    localStorage.removeItem('desplazamientos_'+k));
+  // Clear Firestore
+  if(OFICINA) FSdb.collection('oficinas').doc(OFICINA).set({
+    db:[], entradas:[], empresas:EMPRESAS, mes:30, mesNum:new Date().getMonth()+1,
+    anioNum:new Date().getFullYear(), inicio:'', centimos:26,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
   document.getElementById('upload-zone').style.display='block';
   document.getElementById('table-wrap').style.display='none';
   document.getElementById('stats').style.display='none';
